@@ -175,6 +175,29 @@
     STATIONS.push({ id: 'DOC_' + c.id, phase: 'doc', clinic: c.id, name: 'ห้องตรวจ' + c.name, short: c.name, dep: c.doc[2], c: c.doc[0], s: c.doc[1], open: 510 });
   });
 
+  /* ตำแหน่งช่องบริการในห้อง (คำนวณใหม่เมื่อผู้ดูแลเปลี่ยนจำนวนช่องบริการ) */
+  function layoutServers(s) {
+    const room = s.room, [x0, z0, x1, z1] = room.r;
+    const south = room.d && room.d.includes('s') && z1 <= 0;
+    const pts = [], n = Math.max(1, s.c);
+    if (room.cub) {
+      const cw = (x1 - x0) / room.cub;
+      for (let i = 0; i < n; i++) {
+        const k = i % room.cub, layer = Math.floor(i / room.cub) % 4;
+        const zz = south ? z0 + 2.2 + layer * 1.5 : z1 - 2.2 - layer * 1.5;
+        pts.push([x0 + cw * (k + 0.5) + (layer % 2 ? 0.5 : -0.3), zz]);
+      }
+    } else {
+      const cols = Math.ceil(Math.sqrt(n * (x1 - x0) / (z1 - z0)));
+      const rows = Math.ceil(n / cols);
+      for (let i = 0; i < n; i++) {
+        const c = i % cols, r = Math.floor(i / cols);
+        pts.push([x0 + 1 + (x1 - x0 - 2) * (c + 0.5) / cols, z0 + 1.2 + (z1 - z0 - 2.4) * (r + 0.5) / rows]);
+      }
+    }
+    s.srv = pts;
+  }
+
   /* เติมตำแหน่งจุดบริการจากผัง */
   const ST = {};
   STATIONS.forEach(s => { s.guess = true; ST[s.id] = s; });
@@ -192,27 +215,10 @@
         const area = rooms.find(r => r.waitFor === room.st);
         if (area) s.wait = [area.r[0] + 0.8, area.r[1] + 0.8, area.r[2] - 0.8, area.r[3] - 0.8];
         else s.wait = south ? [x0 + 0.5, P.corr[0] + 0.5, x1 - 0.5, -0.6] : [x0 + 0.5, 0.6, x1 - 0.5, P.corr[1] - 0.5];
-        // ตำแหน่งช่องบริการ
-        const pts = [], n = s.c;
-        if (room.cub) {
-          const cw = (x1 - x0) / room.cub;
-          for (let i = 0; i < n; i++) {
-            const k = i % room.cub, layer = Math.floor(i / room.cub);
-            const zz = south ? z0 + 2.2 + layer * 1.5 : z1 - 2.2 - layer * 1.5;
-            pts.push([x0 + cw * (k + 0.5) + (layer % 2 ? 0.5 : -0.3), zz]);
-          }
-        } else {
-          const cols = Math.ceil(Math.sqrt(n * (x1 - x0) / (z1 - z0)));
-          const rows = Math.ceil(n / cols);
-          for (let i = 0; i < n; i++) {
-            const c = i % cols, r = Math.floor(i / cols);
-            pts.push([x0 + 1 + (x1 - x0 - 2) * (c + 0.5) / cols, z0 + 1.2 + (z1 - z0 - 2.4) * (r + 0.5) / rows]);
-          }
-        }
-        s.srv = pts;
+        layoutServers(s);
       });
     });
   });
 
-  G.KQ_DATA = { PX, PXR, KPI_DEFAULT, PHASES, CAMPUS_BUILDINGS, ROADS, ROUNDABOUTS, WALKWAYS, DOORS, SPAWNS, CAMPUS_PATHS_PX, PLANS, STATIONS, ST, CLINICS };
+  G.KQ_DATA = { PX, PXR, KPI_DEFAULT, PHASES, CAMPUS_BUILDINGS, ROADS, ROUNDABOUTS, WALKWAYS, DOORS, SPAWNS, CAMPUS_PATHS_PX, PLANS, STATIONS, ST, CLINICS, layoutServers };
 })(typeof window !== 'undefined' ? window : globalThis);

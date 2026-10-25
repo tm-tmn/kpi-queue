@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ตั้งค่าผังเวลารอ OPD</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/settings.css">
+</head>
+<body>
+<header class="top">
+  <div class="top-in">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M10 3h4v7h7v4h-7v7h-4v-7H3v-4h7z" fill="currentColor"/></svg></div>
+      <div class="brand-text"><h1>ตั้งค่าผังเวลารอ</h1><p>สำหรับผู้ดูแลระบบ · ค่าที่บันทึกมีผลกับทุกจอในรอบดึงข้อมูลถัดไป</p></div>
+    </div>
+    <div class="top-actions" style="margin-left:auto">
+      <a class="ghost-btn link-btn" href="index.html">กลับไปหน้าผัง</a>
+      <button class="ghost-btn" id="logoutBtn" hidden>ออกจากระบบ</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap set-wrap">
+  <section class="card" id="loginCard" hidden>
+    <h2>เข้าสู่ระบบผู้ดูแล</h2>
+    <p class="muted" id="loginNote">ใช้ชื่อผู้ใช้และรหัสผ่านผู้ดูแลที่ตั้งไว้ใน api/config.php</p>
+    <form id="loginForm" class="login-row">
+      <label for="user" class="sr">ชื่อผู้ใช้</label>
+      <input id="user" type="text" autocomplete="username" placeholder="ชื่อผู้ใช้" autocapitalize="off" spellcheck="false">
+      <label for="pw" class="sr">รหัสผ่าน</label>
+      <input id="pw" type="password" autocomplete="current-password" placeholder="รหัสผ่าน" required>
+      <button class="solid-btn" type="submit">เข้าสู่ระบบ</button>
+    </form>
+    <p class="form-err" id="loginErr" hidden></p>
+  </section>
+
+  <div id="appArea" hidden>
+    <nav class="set-nav" aria-label="หมวดการตั้งค่า">
+      <a href="#kpi">KPI และเกณฑ์</a><a href="#map">จับคู่ห้อง ↔ รหัสแผนก</a><a href="#source">ตารางและคอลัมน์เวลา</a><a href="#check">ตรวจตาราง (นับเท่านั้น)</a>
+    </nav>
+
+    <section class="card" id="kpi">
+      <div class="card-head"><h2>KPI เวลารอ และเกณฑ์</h2><p class="muted">หน่วยเป็นนาที · "รวม" ใช้เทียบเวลาตั้งแต่มาถึงจนรับยาเสร็จ</p></div>
+      <div class="field-grid" id="kpiFields"></div>
+      <h3>เกณฑ์การแสดงผล</h3>
+      <div class="field-grid" id="thFields"></div>
+    </section>
+
+    <section class="card" id="map">
+      <div class="card-head"><h2>จับคู่ห้องในผัง ↔ รหัสแผนก (kskdepartment)</h2>
+        <p class="muted">ใส่ได้หลายรหัสต่อห้อง คั่นด้วยจุลภาค เช่น ห้องตรวจอายุรกรรม 1–6 = 005, 006, 007 · รหัสหนึ่งใช้ได้กับห้องเดียว</p></div>
+      <div class="tbl-scroll"><table class="tbl set-tbl"><thead><tr><th>ห้องในผัง</th><th>ชื่อที่แสดง</th><th>ชื่อย่อบนป้าย</th><th>ขั้นบริการ</th><th>รหัสแผนก</th><th class="num">ช่องบริการ</th></tr></thead><tbody id="mapBody"></tbody></table></div>
+      <datalist id="depList"></datalist>
+      <div id="unmappedBox"></div>
+    </section>
+
+    <section class="card" id="source">
+      <div class="card-head"><h2>ตารางและคอลัมน์เวลา</h2>
+        <p class="muted">เลือกจากคอลัมน์ที่ระบบอ่านเจอจริง · แต่ละจุดใช้เวลา 3 ค่า:
+          <b>เข้าคิว</b> (มาถึงจุด), <b>เรียก</b> (เริ่มให้บริการ), <b>เสร็จ</b> (ออกจากจุด) — เวลารอ = เรียก − เข้าคิว, เวลาให้บริการ = เสร็จ − เรียก</p></div>
+      <h3>ตาราง visit (ผู้ป่วยวันนี้)</h3>
+      <div class="field-grid" id="visitFields"></div>
+      <h3>แหล่งเวลาแบบ "1 แถว = 1 แผนก" <small class="muted">เช่น opd_dep_queue</small></h3>
+      <div id="rowsBox"></div>
+      <button class="ghost-btn sm" id="addRows" type="button">+ เพิ่มตาราง</button>
+      <h3>แหล่งเวลาแบบ "1 แถว = 1 visit หลายจุด" <small class="muted">เช่น service_time ที่มีคอลัมน์เวลาของหลายจุดในแถวเดียว</small></h3>
+      <div id="wideBox"></div>
+      <button class="ghost-btn sm" id="addWide" type="button">+ เพิ่มตาราง</button>
+    </section>
+
+    <section class="card" id="check">
+      <div class="card-head"><h2>ตรวจว่าบันทึกเวลาในตารางไหนจริง</h2>
+        <p class="muted">นับจำนวนแยกตามแผนกย้อนหลัง 7 วันเท่านั้น ไม่ดึงข้อมูลรายคน · คำสั่งเดียวกันอยู่ในไฟล์ sql/01_check_tables.sql</p></div>
+      <button class="solid-btn" id="runCheck" type="button">ตรวจตาราง</button>
+      <div id="checkOut"></div>
+    </section>
+  </div>
+</main>
+
+<div class="savebar" id="saveBar" hidden>
+  <div class="savebar-in">
+    <div id="saveMsg" class="muted">ยังไม่มีการเปลี่ยนแปลง</div>
+    <button class="solid-btn" id="saveBtn" type="button">บันทึกการตั้งค่า</button>
+  </div>
+  <ul class="form-err" id="saveErr" hidden></ul>
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/live.js"></script>
+<script src="js/settings.js"></script>
+</body>
+</html>

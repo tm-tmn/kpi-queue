@@ -1,4 +1,7 @@
 api/config.php
 dist/
+storage/*
+!storage/.htaccess
+!storage/.gitkeep
 .DS_Store
 node_modules/

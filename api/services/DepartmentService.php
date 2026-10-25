@@ -9,7 +9,6 @@ final class DepartmentService
     /** @return array<int, array{depcode:string, department:string}> */
     public function all(): array
     {
-        $sql = 'SELECT depcode, department FROM kskdepartment ORDER BY depcode';
-        return $this->db->query($sql)->fetchAll();
+        return Database::select('SELECT depcode, department FROM kskdepartment ORDER BY depcode');
     }
 }

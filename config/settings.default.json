@@ -1,0 +1,233 @@
+{
+  "version": 1,
+  "kpi": {
+    "reg": 15,
+    "scr": 15,
+    "doc": 60,
+    "xray": 30,
+    "lab": 45,
+    "fin": 15,
+    "pha": 30,
+    "total": 180
+  },
+  "thresholds": {
+    "warn_ratio": 0.8,
+    "stale_minutes": 240,
+    "idle_minutes": 120
+  },
+  "poll_seconds": 30,
+  "stations": {
+    "REG": {
+      "name": "ห้องบัตร / เวชระเบียน",
+      "short": "ห้องบัตร",
+      "phase": "reg",
+      "depcodes": [
+        "001"
+      ],
+      "servers": 14
+    },
+    "LAB": {
+      "name": "ห้องเจาะเลือด / Lab",
+      "short": "Lab",
+      "phase": "lab",
+      "depcodes": [
+        "080"
+      ],
+      "servers": 9
+    },
+    "XRAY": {
+      "name": "ห้องเอกซเรย์",
+      "short": "X-ray",
+      "phase": "xray",
+      "depcodes": [
+        "081"
+      ],
+      "servers": 4
+    },
+    "FIN": {
+      "name": "การเงิน",
+      "short": "การเงิน",
+      "phase": "fin",
+      "depcodes": [
+        "090"
+      ],
+      "servers": 12
+    },
+    "PHA": {
+      "name": "ห้องยาผู้ป่วยนอก",
+      "short": "ห้องยา",
+      "phase": "pha",
+      "depcodes": [
+        "091"
+      ],
+      "servers": 21
+    },
+    "SCR_MED": {
+      "name": "ซักประวัติ อายุรกรรม",
+      "short": "ซักประวัติ อายุรกรรม",
+      "phase": "scr",
+      "depcodes": [
+        "010"
+      ],
+      "servers": 10
+    },
+    "DOC_MED": {
+      "name": "ห้องตรวจอายุรกรรม",
+      "short": "อายุรกรรม",
+      "phase": "doc",
+      "depcodes": [
+        "011"
+      ],
+      "servers": 17
+    },
+    "SCR_SUR": {
+      "name": "ซักประวัติ ศัลยกรรม",
+      "short": "ซักประวัติ ศัลยกรรม",
+      "phase": "scr",
+      "depcodes": [
+        "020"
+      ],
+      "servers": 5
+    },
+    "DOC_SUR": {
+      "name": "ห้องตรวจศัลยกรรม",
+      "short": "ศัลยกรรม",
+      "phase": "doc",
+      "depcodes": [
+        "021"
+      ],
+      "servers": 12
+    },
+    "SCR_ORT": {
+      "name": "ซักประวัติ ออร์โธปิดิกส์",
+      "short": "ซักประวัติ ออร์โธปิดิกส์",
+      "phase": "scr",
+      "depcodes": [
+        "030"
+      ],
+      "servers": 4
+    },
+    "DOC_ORT": {
+      "name": "ห้องตรวจออร์โธปิดิกส์",
+      "short": "ออร์โธปิดิกส์",
+      "phase": "doc",
+      "depcodes": [
+        "031"
+      ],
+      "servers": 8
+    },
+    "SCR_EYE": {
+      "name": "ซักประวัติ จักษุ",
+      "short": "ซักประวัติ จักษุ",
+      "phase": "scr",
+      "depcodes": [
+        "040"
+      ],
+      "servers": 5
+    },
+    "DOC_EYE": {
+      "name": "ห้องตรวจจักษุ",
+      "short": "จักษุ",
+      "phase": "doc",
+      "depcodes": [
+        "041"
+      ],
+      "servers": 10
+    },
+    "SCR_ENT": {
+      "name": "ซักประวัติ หู คอ จมูก",
+      "short": "ซักประวัติ หู คอ จมูก",
+      "phase": "scr",
+      "depcodes": [
+        "050"
+      ],
+      "servers": 3
+    },
+    "DOC_ENT": {
+      "name": "ห้องตรวจหู คอ จมูก",
+      "short": "หู คอ จมูก",
+      "phase": "doc",
+      "depcodes": [
+        "051"
+      ],
+      "servers": 7
+    },
+    "SCR_PED": {
+      "name": "ซักประวัติ กุมารเวชกรรม",
+      "short": "ซักประวัติ กุมารเวชกรรม",
+      "phase": "scr",
+      "depcodes": [
+        "060"
+      ],
+      "servers": 5
+    },
+    "DOC_PED": {
+      "name": "ห้องตรวจกุมารเวชกรรม",
+      "short": "กุมารเวชกรรม",
+      "phase": "doc",
+      "depcodes": [
+        "061"
+      ],
+      "servers": 11
+    },
+    "SCR_OBG": {
+      "name": "ซักประวัติ สูติ-นรีเวช",
+      "short": "ซักประวัติ สูติ-นรีเวช",
+      "phase": "scr",
+      "depcodes": [
+        "070"
+      ],
+      "servers": 4
+    },
+    "DOC_OBG": {
+      "name": "ห้องตรวจสูติ-นรีเวช",
+      "short": "สูติ-นรีเวช",
+      "phase": "doc",
+      "depcodes": [
+        "071"
+      ],
+      "servers": 10
+    }
+  },
+  "source": {
+    "visit": {
+      "table": "ovst",
+      "vn": "vn",
+      "hn": "hn",
+      "date": "vstdate",
+      "time": "vsttime",
+      "queue": "oqueue",
+      "clinic": "main_dep"
+    },
+    "rows": [
+      {
+        "enabled": false,
+        "table": "opd_dep_queue",
+        "vn": "vn",
+        "depcode": "",
+        "queue": "",
+        "arrive": "",
+        "start": "",
+        "end": ""
+      },
+      {
+        "enabled": false,
+        "table": "ovst_service_time",
+        "vn": "vn",
+        "depcode": "",
+        "queue": "",
+        "arrive": "",
+        "start": "",
+        "end": ""
+      }
+    ],
+    "wide": [
+      {
+        "enabled": false,
+        "table": "service_time",
+        "vn": "vn",
+        "points": []
+      }
+    ]
+  }
+}

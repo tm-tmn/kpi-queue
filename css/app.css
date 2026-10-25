@@ -77,6 +77,19 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .seg button { border: 0; background: var(--surface); height: 32px; padding: 0 9px; font: 600 12px var(--f-display); color: var(--muted); }
 .seg button.on { background: var(--accent-soft); color: var(--accent); }
 
+/* live mode */
+.sim-flag.live { background: var(--ok-soft); color: var(--ok); background-image: none; }
+.sim-flag.err { background: var(--bad-soft); color: var(--bad); background-image: none; }
+.sim-flag span { color: inherit; opacity: .85; }
+.is-live .clock-ctl, .is-live #scrub { display: none; }
+.pn-notes { margin: 0 0 10px; padding: 8px 10px 8px 26px; background: var(--flag-bg); color: var(--flag-ink); border-radius: 8px; font-size: 12px; }
+.pn-notes li + li { margin-top: 3px; }
+.pn-foot { font-size: 11px; color: var(--muted); margin: 6px 0 0; }
+.tl .tm.flag { color: var(--flag-ink); background: var(--flag-bg); display: inline-block; padding: 1px 6px; border-radius: 4px; margin-top: 2px; }
+.tbl tr.um-head td { background: var(--surface-2); font-size: 12px; color: var(--muted); cursor: default; }
+.tbl tr.um { cursor: default; }
+.tbl a { color: var(--accent); }
+
 /* ---------- main ---------- */
 .wrap { padding-block: 14px 28px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
   display: flex; flex-direction: column; gap: 14px; max-width: 1600px; margin: 0 auto; }
@@ -110,7 +123,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   background: color-mix(in srgb, var(--surface) 88%, transparent); padding: 6px 10px; border-radius: 8px; max-width: calc(100% - 24px); }
 .legend span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
-.sw.ok { background: var(--ok); } .sw.warn { background: var(--warn); } .sw.bad { background: var(--bad); } .sw.walk { background: var(--walk); }
+.sw.ok { background: var(--ok); } .sw.warn { background: var(--warn); } .sw.bad { background: var(--bad); } .sw.walk { background: var(--walk); } .sw.serve { background: var(--accent); }
 .guess-note { position: absolute; right: 12px; bottom: 10px; max-width: 340px; font-size: 12px; background: var(--flag-bg); color: var(--flag-ink); padding: 6px 10px; border-radius: 8px; }
 .guess-note:empty { display: none; }
 

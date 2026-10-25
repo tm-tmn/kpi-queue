@@ -21,9 +21,9 @@
         <p>โรงพยาบาลศรีนครินทร์ · คณะแพทยศาสตร์ มหาวิทยาลัยขอนแก่น</p>
       </div>
     </div>
-    <div class="sim-flag" role="note"><b>ข้อมูลสมมติ</b><span>จำลองเพื่อทดสอบหน้าจอ ไม่ใช่ข้อมูลผู้ป่วยจริง</span></div>
+    <div class="sim-flag" id="simFlag" role="status"><b>ข้อมูลสมมติ</b><span>จำลองเพื่อทดสอบหน้าจอ ไม่ใช่ข้อมูลผู้ป่วยจริง</span></div>
     <div class="clock">
-      <div class="clock-time"><span class="clock-label">เวลาจำลอง</span><output id="clockOut">10:30</output></div>
+      <div class="clock-time"><span class="clock-label" id="clockLabel">เวลาจำลอง</span><output id="clockOut">10:30</output></div>
       <div class="clock-ctl">
         <button id="playBtn" class="icon-btn" aria-label="หยุดชั่วคราว" title="หยุด / เล่นต่อ"><svg viewBox="0 0 24 24" width="18" height="18"><path id="playIcon" d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor"/></svg></button>
         <div class="seg" role="group" aria-label="ความเร็ว">
@@ -65,10 +65,11 @@
       <div class="labels" id="labels"></div>
       <div class="hint" id="hint">ลากเพื่อเลื่อน · หมุนล้อ/บีบนิ้วเพื่อซูม · แตะอาคาร ห้อง หรือคน</div>
       <div class="legend" aria-label="คำอธิบายสี">
-        <span><i class="sw ok"></i>ไม่เกิน 80% KPI</span>
-        <span><i class="sw warn"></i>80–100%</span>
+        <span><i class="sw ok"></i><span id="lgOk">ไม่เกิน 80% KPI</span></span>
+        <span><i class="sw warn"></i><span id="lgWarn">80–100%</span></span>
         <span><i class="sw bad"></i>เกิน KPI</span>
         <span><i class="sw walk"></i>กำลังเดิน</span>
+        <span><i class="sw serve"></i>กำลังรับบริการ</span>
       </div>
       <div class="guess-note" id="guessNote"></div>
     </div>
@@ -81,12 +82,12 @@
   <section class="tbl-sec" aria-labelledby="tblH">
     <div class="sec-head">
       <h2 id="tblH">ทุกจุดบริการ</h2>
-      <p>เวลารอเฉลี่ย = ค่าเฉลี่ยของผู้ที่เริ่มรับบริการใน 60 นาทีล่าสุด · แตะแถวเพื่อไปที่ห้อง</p>
+      <p>เวลารอ = เวลาเรียก − เวลาเข้าคิว · เฉลี่ยจากผู้ที่ถูกเรียกใน 60 นาทีล่าสุด · แตะแถวเพื่อไปที่ห้อง</p>
     </div>
     <div class="tbl-scroll">
       <table class="tbl" id="tbl">
         <thead><tr>
-          <th>จุดบริการ</th><th>อาคาร · ชั้น</th><th>รหัสแผนก</th><th class="num">รอ (คน)</th><th class="num">เฉลี่ย</th><th class="num">รอนานสุด</th><th class="num">KPI</th><th>เทียบ KPI</th><th class="num">รับบริการแล้ว</th>
+          <th>จุดบริการ</th><th>อาคาร · ชั้น</th><th>รหัสแผนก</th><th class="num">รอ (คน)</th><th class="num">เฉลี่ย</th><th class="num">รอนานสุด</th><th class="num">KPI</th><th>เทียบ KPI</th><th class="num">รับบริการแล้ว</th><th class="num" title="สัดส่วนผู้รับบริการวันนี้ที่มีเวลาเข้าคิว เวลาเรียก และเวลาเสร็จครบ">บันทึกครบ</th>
         </tr></thead>
         <tbody id="tbody"></tbody>
       </table>
@@ -105,7 +106,7 @@
       </div>
     </div>
   </section>
-  <footer class="foot">ต้นแบบ · ข้อมูลสมมติทั้งหมด · HN แสดงเฉพาะ 4 ตัวท้าย ไม่แสดงชื่อผู้ป่วย</footer>
+  <footer class="foot" id="footNote">ต้นแบบ · ข้อมูลสมมติทั้งหมด · HN แสดงเฉพาะ 4 ตัวท้าย ไม่แสดงชื่อผู้ป่วย</footer>
 </main>
 
 <div class="modal" id="kpiModal" hidden>
@@ -124,6 +125,7 @@
 <script src="js/data.js"></script>
 <script src="js/sim.js"></script>
 <script src="js/metrics.js"></script>
+<script src="js/live.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

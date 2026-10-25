@@ -19,13 +19,22 @@
   const PH = {}; D.PHASES.forEach(p => { PH[p.id] = p.name; });
   const STV = { ok: '--ok', warn: '--warn', bad: '--bad', none: '--muted' };
   const STNAME = { ok: 'ผ่าน KPI', warn: 'ใกล้เกิน KPI', bad: 'เกิน KPI', none: 'ยังไม่มีข้อมูล' };
+  const stateOf = (p, t) => MODE === 'live' ? LV.stateAt(p, t) : SIM.stateAt(p, t);
+  const depName = c => (LIVE && LIVE.deps[c]) || c || '–';
+  const clinicName = p => p.live ? depName(p.clinic) : CL[p.clinic].name;
+  const depBadge = () => MAPPED ? '' : ' <span class="guess">เดา</span>';
   const locName = (b, f) => BLD[b].short + (PLANS[b].floors.length > 1 ? ' · ชั้น ' + (f + 1) : '');
 
   /* ---------------- ข้อมูลจำลอง ---------------- */
+  const LV = window.KQ_LIVE;
   let KPI = Object.assign({}, D.KPI_DEFAULT, store.get('kq-kpi', {}));
-  const PATS = SIM.runSim(2026);
-  const BY = M.indexSteps(PATS);
-  let T = 630;                // 10:30
+  let MODE = 'sim';                 // sim = ข้อมูลสมมติ, live = ข้อมูลจริงจาก HIS
+  let SERVER = false;               // มี api (PHP) ให้ใช้หรือไม่
+  let MAPPED = false;               // ผู้ดูแลบันทึกการจับคู่ห้องแล้ว (ไม่ต้องแสดงป้าย "เดา" ที่รหัสแผนก)
+  let PATS = [], BY = M.indexSteps([]);
+  let LIVE = null, liveAt = 0, liveErr = null, pollMs = 30000, pollTimer = null;
+  const anims = new Map();
+  let T = 630;                      // โหมดจำลองเริ่ม 10:30
   let playing = true, speed = 10;
   let stats = {}, ov = {};
 
@@ -379,8 +388,16 @@
     const vis = [];
     const inB = view.mode === 'bld';
     for (const p of PATS) {
-      const s = SIM.stateAt(p, T);
-      if (!s) continue;
+      if (MODE === 'live') {
+        const an = anims.get(p.ref);
+        if (an && now < an.t1) {
+          const L = SIM.leg(an.from, an.to), lp = SIM.legPos(L, (now - an.t0) / (an.t1 - an.t0) * L.dur);
+          if (lp && lp.sp !== 'lift' && (inB ? (lp.sp === 'plan' && lp.b === view.b && lp.f === view.f) : lp.sp === 'campus')) vis.push({ p, x: lp.x, z: lp.z, c: 'walk', bob: true });
+          continue;
+        }
+      }
+      const s = stateOf(p, T);
+      if (!s || s.kind === 'between' || s.kind === 'stale') continue;
       if (s.kind === 'wait') { (wl[s.st] = wl[s.st] || []).push({ p, since: s.since }); continue; }
       if (s.kind === 'serve') {
         const st = ST[s.st];
@@ -458,8 +475,11 @@
     const s = stats[id], st = ST[id];
     if (!s) return '';
     const more = overflow[id] ? ' <span class="muted">(+' + overflow[id] + ' นอกภาพ)</span>' : '';
+    if (MODE === 'live' && !s.n && !s.served && !s.stale) return '<div class="lab-card" style="--sc:var(--muted)"><div class="lab-t"><i></i>' + esc(st.short) + '</div><div class="lab-v">ยังไม่มีข้อมูลวันนี้</div></div>';
+    const val = s.basis === 'proxy' ? '<b class="st-' + s.status + '">≈' + fmtN(s.avg) + '</b> นาที (เข้า→ออก)'
+      : s.noTimes ? '<span class="muted">ไม่มีเวลาเรียก</span>' : '<b class="st-' + s.status + '">' + fmtN(s.avg) + '</b> นาที';
     return '<div class="lab-card" style="--sc:var(' + STV[s.status] + ')"><div class="lab-t"><i></i>' + esc(st.short) + '</div>' +
-      '<div class="lab-v">รอ <b>' + s.n + '</b> คน · <b class="st-' + s.status + '">' + fmtN(s.avg) + '</b> นาที' + more + '</div></div>';
+      '<div class="lab-v">รอ <b>' + s.n + '</b> คน · ' + val + more + '</div></div>';
   }
   function bldAgg(b) {
     let n = 0, worst = null;
@@ -596,51 +616,71 @@
     updateRoute();
   }
   function openPerson(pid) {
-    sel.type = 'pat'; sel.id = pid;
+    sel.type = 'pat'; sel.id = pid; sel.ref = PATS[pid] && PATS[pid].ref;
     panel.hidden = false;
     renderPanel(true);
     updateRoute();
   }
   function goPerson(pid) {
-    const p = PATS[pid], s = SIM.stateAt(p, T);
+    const p = PATS[pid], s = p && stateOf(p, T);
     if (!s) return;
     let b, f;
-    if (s.kind === 'wait' || s.kind === 'serve') { b = ST[s.st].b; f = ST[s.st].f; }
+    if (s.st && ST[s.st]) { b = ST[s.st].b; f = ST[s.st].f; }
+    else if (!s.L) return;
     else { const lp = SIM.legPos(s.L, s.el); if (lp.sp === 'campus') b = null; else { b = lp.b; f = lp.f || 0; } }
     if (b == null) { if (view.mode !== 'campus') setView('campus'); }
     else if (view.mode !== 'bld' || view.b !== b || view.f !== f) setView('bld', b, f);
   }
+  /* แผงข้อมูลอัปเดตทุก ~0.5 วิ: หยุดอัปเดตขณะเมาส์/นิ้วอยู่บนแผง เพื่อไม่ให้ปุ่มถูกแทนที่ระหว่างคลิก */
+  let panelHold = false, panelHTML = '';
+  panel.addEventListener('pointerenter', () => { panelHold = true; });
+  panel.addEventListener('pointerleave', () => { panelHold = false; renderPanel(false); });
+  pbody.addEventListener('click', e => {
+    const t = e.target.closest('[data-pid], #goPerson, #backSt');
+    if (!t) return;
+    if (t.dataset.pid != null) openPerson(+t.dataset.pid);
+    else if (t.id === 'goPerson') goPerson(sel.id);
+    else openStation(t.dataset.st);
+  });
   function renderPanel(reset) {
-    if (panel.hidden) return;
+    if (panel.hidden || (!reset && panelHold)) return;
+    const html = sel.type === 'st' ? stationPanel(sel.id) : personPanel(sel.id);
+    if (!reset && html === panelHTML) return;
     const keep = reset ? 0 : (pbody.querySelector('.q-list') || {}).scrollTop || 0;
     const keepP = reset ? 0 : panel.scrollTop;
-    pbody.innerHTML = sel.type === 'st' ? stationPanel(sel.id) : personPanel(sel.id);
+    pbody.innerHTML = panelHTML = html;
     const ql = pbody.querySelector('.q-list'); if (ql) ql.scrollTop = keep;
     panel.scrollTop = keepP;
-    pbody.querySelectorAll('[data-pid]').forEach(b => { b.onclick = () => openPerson(+b.dataset.pid); });
-    const gp = pbody.querySelector('#goPerson'); if (gp) gp.onclick = () => goPerson(sel.id);
-    const gs = pbody.querySelector('#backSt'); if (gs) gs.onclick = () => openStation(gs.dataset.st);
     labels.forEach(L => L.el.classList.toggle('sel', sel.type === 'st' && L.st === sel.id));
   }
   function stationPanel(id) {
     const st = ST[id], s = stats[id], k = KPI[st.phase];
-    const rows = s.waiting.slice(0, 80).map((e, i) => {
-      const w = T - e.s.arrive, ss = M.status(w, k);
-      return '<button class="q-row" data-pid="' + e.p.id + '"><span class="qn">' + (i + 1) + '</span><span class="hn">' + hn4(e.p.hn) + '<small>' + esc(CL[e.p.clinic].name) + '</small></span>' +
-        '<span class="muted">' + fmtT(e.s.arrive) + '</span><span class="w st-' + ss + '">' + Math.round(w) + ' น.</span></button>';
+    const rows = s.waiting.slice(0, 80).map(e => {
+      const unk = e.s.ia === 2, w = T - e.s.arrive, ss = unk ? 'none' : M.status(w, k);
+      return '<button class="q-row" data-pid="' + e.p.id + '"><span class="qn">' + esc(e.s.q || e.p.q || '–') + '</span><span class="hn">' + hn4(e.p.hn) + '<small>' + esc(clinicName(e.p)) + '</small></span>' +
+        '<span class="muted">' + fmtT(e.s.arrive) + (e.s.ia ? '*' : '') + '</span><span class="w st-' + ss + '">' + (unk ? '?' : Math.round(w) + ' น.') + '</span></button>';
     }).join('');
+    const notes = [];
+    if (s.basis === 'proxy') notes.push('จุดนี้ไม่ได้บันทึกเวลาเรียก จึงแสดงเวลาอยู่ที่จุด (เวลาออก − เวลาเข้า) ซึ่งรวมเวลาให้บริการด้วย เป็นค่าประมาณของเวลารอ');
+    else if (s.noTimes) notes.push('จุดนี้ไม่ได้บันทึกเวลาเรียก จึงคำนวณเวลารอไม่ได้ แสดงเฉพาะจำนวนคน');
+    else if (s.noStart) notes.push('เสร็จแล้วแต่ไม่มีเวลาเรียก ' + s.noStart + ' คน (ไม่นับในค่าเฉลี่ยเวลารอ)');
+    if (s.stale) notes.push('ค้างในระบบ ' + s.stale + ' คน (เข้าคิวนานเกินเกณฑ์โดยไม่มีเวลาเรียก/เสร็จ ไม่นับเป็นผู้รอ)');
+    if (MODE === 'live' && s.cov != null) notes.unshift('บันทึกเวลาครบทั้ง 3 ค่า ' + Math.round(s.cov * 100) + '% ของผู้ที่เสร็จจุดนี้แล้ววันนี้ (' + s.fin + ' คน)');
     return '<div class="pn-eyebrow">' + esc(locName(st.b, st.f)) + ' · ขั้น' + PH[st.phase] + '</div>' +
       '<h3 class="pn-title">' + esc(st.name) + '</h3>' +
-      '<div class="pn-actions" style="margin:-2px 0 10px"><span class="chip st-' + s.status + '">' + STNAME[s.status] + '</span><span class="chip">depcode ' + st.dep + ' <span class="guess">เดา</span></span><span class="chip">' + st.c + ' ช่องบริการ</span></div>' +
+      '<div class="pn-actions" style="margin:-2px 0 10px"><span class="chip st-' + s.status + '">' + (s.basis === 'proxy' ? 'ประมาณจากเวลาเข้า-ออก · ' + STNAME[s.status] : s.noTimes ? 'ไม่มีเวลาเรียก' : STNAME[s.status]) + '</span><span class="chip">รหัสแผนก ' + esc(st.dep) + depBadge() + '</span><span class="chip">' + st.c + ' ช่องบริการ</span></div>' +
       '<div class="pn-stats">' +
       '<div class="pn-stat"><span>รอตอนนี้</span><b>' + s.n + '</b> คน</div>' +
-      '<div class="pn-stat"><span>เฉลี่ย 60 นาที</span><b style="color:var(' + STV[s.status] + ')">' + fmtN(s.avg) + '</b> / ' + k + '</div>' +
+      '<div class="pn-stat"><span>' + (s.basis === 'proxy' ? 'อยู่ที่จุด 60 นาที' : 'เฉลี่ย 60 นาที') + '</span><b style="color:var(' + STV[s.status] + ')">' + (s.basis === 'proxy' ? '≈' : '') + fmtN(s.avg) + '</b> / ' + k + '</div>' +
       '<div class="pn-stat"><span>รับบริการแล้ว</span><b>' + s.served + '</b> คน</div></div>' +
-      '<div class="pn-h">เวลารอเฉลี่ยทุก 15 นาที <small>เส้นประ = KPI ' + k + ' นาที</small></div>' +
-      '<div class="chart">' + chartSVG(M.series15(BY, id, T, 390), k) + '</div>' +
-      '<div class="pn-h">รายการคิวที่รอ <small>' + s.n + ' คน · เรียงตามเวลามาถึง</small></div>' +
-      (s.n ? '<div class="q-list"><div class="q-head"><span>#</span><span>ผู้ป่วย</span><span>มาถึง</span><span>รอแล้ว</span></div>' + rows +
-        (s.n > 80 ? '<div class="q-more">และอีก ' + (s.n - 80) + ' คน</div>' : '') + '</div>' : '<p class="muted">ไม่มีผู้รอในขณะนี้</p>');
+      (notes.length ? '<ul class="pn-notes">' + notes.map(n => '<li>' + esc(n) + '</li>').join('') + '</ul>' : '') +
+      '<div class="pn-h">' + (s.basis === 'proxy' ? 'เวลาอยู่ที่จุดเฉลี่ยทุก 15 นาที' : 'เวลารอเฉลี่ยทุก 15 นาที') + ' <small>เส้นประ = KPI ' + k + ' นาที</small></div>' +
+      '<div class="chart">' + chartSVG(M.series15(BY, id, T, 390, s.basis === 'proxy'), k) + '</div>' +
+      '<div class="pn-h">รายการคิวที่รอ <small>' + s.n + ' คน · เรียงตามเวลาเข้าคิว</small></div>' +
+      (s.n ? '<div class="q-list"><div class="q-head"><span>คิว</span><span>ผู้ป่วย · แผนก</span><span>เข้าคิว</span><span>รอแล้ว</span></div>' + rows +
+        (s.n > 80 ? '<div class="q-more">และอีก ' + (s.n - 80) + ' คน</div>' : '') + '</div>' +
+        (s.waiting.some(e => e.s.ia) ? '<p class="pn-foot">* เวลาเข้าคิวอนุมานจากเวลาเสร็จของจุดก่อนหน้า · ? ไม่ทราบเวลาเข้าคิว</p>' : '')
+        : '<p class="muted">ไม่มีผู้รอในขณะนี้</p>');
   }
   function chartSVG(ser, k) {
     const W = 340, H = 160, pl = 30, pr = 10, pt = 12, pb = 24;
@@ -672,42 +712,62 @@
       '<text x="' + (pl + 2) + '" y="' + (pt - 2) + '" style="fill:var(--muted)" font-size="9">นาที · แท่งจาง = จำนวนคนรอ</text></svg>';
   }
   function personPanel(pid) {
-    const p = PATS[pid], s = SIM.stateAt(p, T);
-    let now = 'ยังไม่มาถึง';
-    if (!s) now = T >= p.gone ? 'กลับบ้านแล้ว' : 'ยังไม่มาถึง';
-    else if (s.kind === 'wait') now = 'รอที่ ' + ST[s.st].short;
-    else if (s.kind === 'serve') now = 'กำลังรับบริการที่ ' + ST[s.st].short;
+    const p = PATS[pid];
+    if (!p) return '<p class="muted">ไม่พบผู้ป่วยรายนี้ในข้อมูลรอบล่าสุด</p>';
+    const s = stateOf(p, T), stName = id => id && ST[id] ? ST[id].short : 'จุดที่ยังไม่จับคู่';
+    let now;
+    if (!s) now = p.arr != null && p.arr <= T ? (p.di ? 'ไม่มีความเคลื่อนไหวนานเกินเกณฑ์ (ถือว่ากลับแล้ว)' : 'กลับบ้านแล้ว') : 'ยังไม่มาถึง';
+    else if (s.kind === 'wait') now = 'รอที่ ' + stName(s.st);
+    else if (s.kind === 'serve') now = 'กำลังรับบริการที่ ' + stName(s.st);
+    else if (s.kind === 'stale') now = 'ค้างในระบบที่ ' + stName(s.st);
+    else if (s.kind === 'between') now = 'เสร็จที่ ' + stName(s.st) + ' แล้ว ยังไม่เข้าคิวจุดถัดไป';
     else if (s.i === -1) now = 'กำลังเดินมาห้องบัตร';
     else if (s.out) now = 'รับยาแล้ว กำลังออกจากอาคาร';
-    else now = 'กำลังเดินไป ' + ST[s.to].short;
-    const items = p.route.map((sid, i) => {
-      const st = ST[sid], k = KPI[st.phase], step = p.steps[i];
-      const loc = esc(locName(st.b, st.f));
-      if (!step || step.arrive > T) return '<li class="future"><span class="dot"></span><div><div class="nm">' + esc(st.short) + ' · ' + PH[st.phase] + '</div><div class="loc">' + loc + ' · ยังไม่ถึงขั้นนี้</div></div></li>';
-      const waiting = T < step.start, w = (waiting ? T : step.start) - step.arrive, ss = M.status(w, k);
-      const cur = s && (s.kind === 'wait' || s.kind === 'serve') && s.i === i;
-      const tm = waiting ? 'มาถึง ' + fmtT(step.arrive) + ' · <b>รออยู่ ' + Math.round(w) + ' นาที</b>'
-        : 'มาถึง ' + fmtT(step.arrive) + ' · เรียก ' + fmtT(step.start) + ' · <b>รอ ' + Math.round(w) + ' นาที</b>' + (T >= step.end ? ' · เสร็จ ' + fmtT(step.end) : ' · กำลังรับบริการ');
-      return '<li class="' + (cur ? 'now' : '') + '" style="--dc:var(' + STV[ss] + ')"><span class="dot"></span><div><div class="nm">' + esc(st.short) + ' · ' + PH[st.phase] + '</div><div class="loc">' + loc + '</div><div class="tm">' + tm + '</div>' +
-        '<div class="bar" style="--bc:var(' + STV[ss] + ');--kp:66.7%"><i style="width:' + Math.min(100, w / k / 1.5 * 100) + '%"></i></div><div class="tm">KPI ' + k + ' นาที</div></div></li>';
-    }).join('');
-    const arrived = p.arr <= T;
-    const tot = arrived ? Math.min(T, p.done) - p.arr : 0, ts = M.status(tot, KPI.total);
-    const back = p.steps.find(x => x.arrive <= T && T < x.start);
-    return '<div class="pn-eyebrow">ผู้ป่วย (ข้อมูลสมมติ)</div><h3 class="pn-title">' + hn4(p.hn) + '</h3>' +
-      '<div class="pn-actions" style="margin:-2px 0 10px"><span class="chip">' + esc(CL[p.clinic].name) + '</span><span class="chip">' + (p.appt ? 'มีนัด' : 'ไม่มีนัด') + '</span>' + (arrived ? '<span class="chip st-' + ts + '">' + STNAME[ts] + '</span>' : '') + '</div>' +
-      '<div class="pn-stats"><div class="pn-stat"><span>ยื่นบัตร</span><b>' + (arrived ? fmtT(p.arr) : '–') + '</b></div>' +
+    else now = 'กำลังเดินไป ' + stName(s.to);
+    const list = p.live ? p.steps.map((x, i) => [x.st, x, i]) : p.route.map((sid, i) => [sid, p.steps[i], i]);
+    const items = list.map(([sid, step, i]) => {
+      const st = sid ? ST[sid] : null, k = st ? KPI[st.phase] : null;
+      const nm = st ? esc(st.short) + ' · ' + PH[st.phase] : esc(depName(step && step.dep)) + ' <span class="muted">(ยังไม่จับคู่ห้อง)</span>';
+      const loc = st ? esc(locName(st.b, st.f)) : 'รหัสแผนก ' + esc(step && step.dep || '–');
+      if (!step || step.arrive > T) return '<li class="future"><span class="dot"></span><div><div class="nm">' + nm + '</div><div class="loc">' + loc + ' · ยังไม่ถึงขั้นนี้</div></div></li>';
+      const flags = [];
+      if (step.ia === 1) flags.push('เวลาเข้าคิวอนุมานจากจุดก่อนหน้า');
+      if (step.ia === 2) flags.push('ไม่ทราบเวลาเข้าคิว');
+      if (step.ie === 1) flags.push('ไม่ได้บันทึกเวลาเสร็จ ใช้เวลาเข้าจุดถัดไปแทน');
+      const waiting = M.isWaiting(step, T);
+      const known = step.start != null && step.ia !== 2 || (waiting && step.ia !== 2);
+      const w = waiting ? T - step.arrive : step.start != null ? step.start - step.arrive : null;
+      const ss = step.stale ? 'none' : known && k ? M.status(w, k) : 'none';
+      const cur = s && s.i === i && (s.kind === 'wait' || s.kind === 'serve' || s.kind === 'stale');
+      let tm = 'เข้าคิว ' + fmtT(step.arrive) + (step.ia ? '*' : '');
+      if (step.stale) tm += ' · <b>ค้างในระบบ</b> ไม่มีเวลาเรียก/เสร็จ';
+      else if (waiting) tm += ' · <b>' + (known ? 'รออยู่ ' + Math.round(w) + ' นาที' : 'กำลังรอ (ไม่ทราบเวลาเข้าคิว)') + '</b>';
+      else {
+        tm += step.start != null ? ' · เรียก ' + fmtT(step.start) + ' · <b>รอ ' + (known ? Math.round(w) + ' นาที' : '?') + '</b>'
+          : ' · <b>ไม่ได้บันทึกเวลาเรียก</b>' + (step.end != null && step.end <= T && step.ia !== 2 && !step.ie ? ' (อยู่ที่จุด ≈' + Math.round(step.end - step.arrive) + ' นาที)' : '');
+        tm += step.end != null && step.end <= T ? ' · เสร็จ ' + fmtT(step.end) + (step.ie ? '*' : '') : ' · กำลังรับบริการ';
+      }
+      const bar = known && k && !step.stale ? '<div class="bar" style="--bc:var(' + STV[ss] + ');--kp:66.7%"><i style="width:' + Math.min(100, w / k / 1.5 * 100) + '%"></i></div><div class="tm">KPI ' + k + ' นาที</div>' : '';
+      return '<li class="' + (cur ? 'now' : '') + '" style="--dc:var(' + STV[ss] + ')"><span class="dot"></span><div><div class="nm">' + nm + '</div><div class="loc">' + loc + '</div><div class="tm">' + tm + '</div>' +
+        (flags.length ? '<div class="tm flag">' + flags.join(' · ') + '</div>' : '') + bar + '</div></li>';
+    }).join('') + (p.live && (p.done == null || p.done > T) ? '<li class="future"><span class="dot"></span><div><div class="nm">ขั้นถัดไป</div><div class="loc">ยังไม่ทราบ — ข้อมูลจริงเห็นเฉพาะจุดที่เข้าคิวแล้ว</div></div></li>' : '');
+    const arrived = p.arr != null && p.arr <= T;
+    const tot = arrived ? Math.min(T, p.done != null ? p.done : T) - p.arr : 0, ts = M.status(tot, KPI.total);
+    const back = s && (s.kind === 'wait' || s.kind === 'serve') ? s.st : null;
+    return '<div class="pn-eyebrow">' + (p.live ? 'ผู้ป่วย' : 'ผู้ป่วย (ข้อมูลสมมติ)') + '</div><h3 class="pn-title">' + hn4(p.hn) + '</h3>' +
+      '<div class="pn-actions" style="margin:-2px 0 10px">' + (p.q ? '<span class="chip">คิว ' + esc(p.q) + '</span>' : '') + '<span class="chip">' + esc(clinicName(p)) + '</span>' +
+      (p.live ? '' : '<span class="chip">' + (p.appt ? 'มีนัด' : 'ไม่มีนัด') + '</span>') + (arrived ? '<span class="chip st-' + ts + '">' + STNAME[ts] + '</span>' : '') + '</div>' +
+      '<div class="pn-stats"><div class="pn-stat"><span>มาถึง</span><b>' + (arrived ? fmtT(p.arr) : '–') + '</b></div>' +
       '<div class="pn-stat"><span>อยู่ใน รพ. แล้ว</span><b style="color:var(' + STV[ts] + ')">' + (arrived ? Math.round(tot) : '–') + '</b> น.</div>' +
       '<div class="pn-stat"><span>KPI รวม</span><b>' + KPI.total + '</b> น.</div></div>' +
       '<div class="pn-h">ตอนนี้ <small>' + esc(now) + '</small></div>' +
       '<div class="pn-h">เส้นทางตั้งแต่ยื่นบัตรถึงรับยา</div><ol class="tl">' + items + '</ol>' +
       '<div class="pn-actions"><button class="ghost-btn sm" id="goPerson">ไปที่ตำแหน่งปัจจุบัน</button>' +
-      (back ? '<button class="ghost-btn sm" id="backSt" data-st="' + back.st + '">ดูคิวที่ ' + esc(ST[back.st].short) + '</button>' : '') + '</div>';
+      (back ? '<button class="ghost-btn sm" id="backSt" data-st="' + back + '">ดูคิวที่ ' + esc(ST[back].short) + '</button>' : '') + '</div>';
   }
-  /* เส้นทางของคนที่เลือก (บนภาพรวม) */
   function updateRoute() {
     if (routeLine) { scene.remove(routeLine); routeLine.geometry.dispose(); routeLine = null; }
-    if (sel.type !== 'pat' || view.mode !== 'campus') return;
+    if (sel.type !== 'pat' || view.mode !== 'campus' || MODE !== 'sim') return;
     const p = PATS[sel.id], keys = [p.spawn].concat(p.route).concat([p.exitTo]);
     const pts = [];
     for (let i = 1; i < keys.length; i++) {
@@ -742,17 +802,26 @@
   }
   function renderTable() {
     const rows = Object.values(stats).sort((a, b) => (b.ratio == null ? -1 : b.ratio) - (a.ratio == null ? -1 : a.ratio));
-    $('tbody').innerHTML = rows.map(s => {
+    let html = rows.map(s => {
       const st = ST[s.id], r = s.ratio;
+      const avg = MODE === 'live' && !s.n && !s.served && !s.stale ? '<span class="muted">ไม่มีข้อมูล</span>' : s.basis === 'proxy' ? '<span title="ไม่มีเวลาเรียก ใช้เวลาออก − เวลาเข้า">≈' + fmtN(s.avg) + '</span>' : s.noTimes ? '<span class="muted">ไม่มีเวลาเรียก</span>' : fmtN(s.avg);
       return '<tr data-st="' + s.id + '" tabindex="0"><td class="nm"><span class="stripe" style="--sc:var(' + STV[s.status] + ')"></span>' + esc(st.name) + '</td>' +
-        '<td>' + esc(locName(st.b, st.f)) + '</td><td>' + st.dep + ' <span class="guess">เดา</span></td>' +
-        '<td class="num">' + s.n + '</td><td class="num">' + fmtN(s.avg) + '</td><td class="num">' + (s.n ? Math.round(s.maxW) : '–') + '</td><td class="num">' + s.kpi + '</td>' +
+        '<td>' + esc(locName(st.b, st.f)) + '</td><td>' + esc(st.dep) + depBadge() + '</td>' +
+        '<td class="num">' + s.n + '</td><td class="num">' + avg + '</td><td class="num">' + (s.n ? Math.round(s.maxW) : '–') + '</td><td class="num">' + s.kpi + '</td>' +
         '<td><div class="ratio"><div class="bar" style="--bc:var(' + STV[s.status] + ');--kp:66.7%"><i style="width:' + (r == null ? 0 : Math.min(100, r / 1.5 * 100)) + '%"></i></div><span>' + (r == null ? '–' : Math.round(r * 100) + '%') + '</span></div></td>' +
-        '<td class="num">' + s.served + '</td></tr>';
+        '<td class="num">' + s.served + '</td><td class="num">' + (s.cov == null ? '–' : Math.round(s.cov * 100) + '%') + '</td></tr>';
     }).join('');
+    if (MODE === 'live' && LIVE) {
+      const um = Object.entries(LIVE.unmapped || {}).sort((a, b) => b[1].steps - a[1].steps);
+      if (um.length) {
+        html += '<tr class="um-head"><td colspan="10">แผนกที่มีผู้ป่วยวันนี้แต่ยังไม่ได้จับคู่กับห้องในผัง' + (SERVER ? ' — <a href="settings.html#map">ไปจับคู่ในหน้าตั้งค่า</a>' : '') + '</td></tr>';
+        html += um.map(([dep, u]) => '<tr class="um"><td class="nm"><span class="stripe" style="--sc:var(--muted)"></span>' + esc(depName(dep)) + '</td><td class="muted">ยังไม่จับคู่</td><td>' + esc(dep) + '</td><td class="num">' + u.waiting + '</td><td class="num">–</td><td class="num">–</td><td class="num">–</td><td></td><td class="num">' + u.steps + '</td><td class="num">–</td></tr>').join('');
+      }
+    }
+    $('tbody').innerHTML = html;
   }
-  $('tbody').addEventListener('click', e => { const tr = e.target.closest('tr'); if (tr) goStation(tr.dataset.st); });
-  $('tbody').addEventListener('keydown', e => { if (e.key === 'Enter') { const tr = e.target.closest('tr'); if (tr) goStation(tr.dataset.st); } });
+  $('tbody').addEventListener('click', e => { const tr = e.target.closest('tr[data-st]'); if (tr) goStation(tr.dataset.st); });
+  $('tbody').addEventListener('keydown', e => { if (e.key === 'Enter') { const tr = e.target.closest('tr[data-st]'); if (tr) goStation(tr.dataset.st); } });
   function goStation(id) { openStation(id); $('stage').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 
   function renderAssume() {
@@ -764,14 +833,15 @@
       '<li>อาคารศูนย์บริการการแพทย์ชั้นเลิศแสดงเป็นโครงก่อสร้าง ยังไม่ใช้เป็นจุดบริการ</li></ul>' +
       '<h3>ผังภายในและรหัสแผนก</h3><ul>' +
       '<li>ผังภายในทุกชั้นวาดขึ้นเอง ยังไม่ได้ลอกจากผังจริง ต้องการภาพผังแต่ละอาคาร/ชั้น</li>' +
-      '<li>depcode ทุกจุดเป็นตัวเลขสมมติ ต้องการผลจาก <code>kskdepartment</code> (depcode, department) และการจับคู่ห้องในผัง เช่น ห้องตรวจ 3 = 005</li>' +
-      '<li>KPI เวลารอตั้งต้นที่ ' + D.PHASES.map(p => p.name + ' ' + D.KPI_DEFAULT[p.id]).join(', ') + ', รวม ' + D.KPI_DEFAULT.total + ' นาที แก้ได้ที่ "ตั้งค่า KPI"</li>' +
-      '<li>สัดส่วนผู้ป่วยแต่ละคลินิก โอกาสส่ง Lab/X-ray และจำนวนช่องบริการ เป็นค่าสมมติเพื่อให้เห็นภาพ</li></ul>';
+      (MAPPED ? '<li>การจับคู่ห้องกับรหัสแผนก ผู้ดูแลบันทึกแล้วในหน้าตั้งค่า</li>'
+        : '<li>รหัสแผนกทุกจุดยังเป็นตัวเลขสมมติ ต้องจับคู่ห้องในผังกับ <code>kskdepartment</code> ในหน้าตั้งค่า เช่น ห้องตรวจ 3 = 005</li>') +
+      '<li>KPI เวลารอที่ใช้อยู่: ' + D.PHASES.map(p => p.name + ' ' + KPI[p.id]).join(', ') + ', รวม ' + KPI.total + ' นาที</li>' +
+      (MODE === 'sim' ? '<li>สัดส่วนผู้ป่วยแต่ละคลินิก โอกาสส่ง Lab/X-ray และจำนวนช่องบริการ เป็นค่าสมมติเพื่อให้เห็นภาพ</li>' : '') + '</ul>';
     const rows = [];
     Object.keys(PLANS).forEach(b => PLANS[b].floors.forEach((rooms, f) => rooms.forEach(r => {
       if (!r.st) return;
       const st = ST[r.st];
-      rows.push('<tr><td>' + esc(r.n) + (r.cub ? ' <span class="muted">(ห้อง 1–' + r.cub + ')</span>' : '') + '</td><td>' + esc(locName(b, f)) + '</td><td>' + st.dep + ' <span class="guess">เดา</span></td><td class="num">' + st.c + '</td></tr>');
+      rows.push('<tr><td>' + esc(r.n) + (r.cub ? ' <span class="muted">(ห้อง 1–' + r.cub + ')</span>' : '') + '</td><td>' + esc(locName(b, f)) + '</td><td>' + esc(st.dep) + depBadge() + '</td><td class="num">' + st.c + '</td></tr>');
     })));
     $('mapBody').innerHTML = rows.join('');
   }
@@ -784,7 +854,7 @@
     $('kpi-reg').focus();
   }
   function closeKpi() { $('kpiModal').hidden = true; }
-  $('kpiBtn').onclick = openKpi;
+  $('kpiBtn').onclick = () => { if (SERVER) location.href = 'settings.html'; else openKpi(); };
   $('kpiModal').addEventListener('click', e => { if (e.target === $('kpiModal')) closeKpi(); });
   $('kpiForm').addEventListener('submit', e => {
     e.preventDefault();
@@ -823,6 +893,7 @@
     stats = M.stationStats(BY, T, KPI);
     ov = M.overall(PATS, stats, T, KPI);
     $('clockOut').textContent = fmtT(T);
+    renderMode();
     if (!scrubbing) scrub.value = Math.floor(T);
     renderTop(); renderTable();
     labels.forEach(L => { if (L.st) L.el.innerHTML = stationLabelHTML(L.st); else if (L.bld) L.el.innerHTML = bldLabelHTML(L.bld); });
@@ -840,7 +911,8 @@
   let last = performance.now();
   function loop(now) {
     const dt = Math.min(0.1, (now - last) / 1000); last = now;
-    if (playing && !scrubbing) {
+    if (MODE === 'live') { if (LIVE) T = LIVE.now + (Date.now() - liveAt) / 60000; }
+    else if (playing && !scrubbing) {
       T = Math.min(990, T + dt * speed / 60);
       if (T >= 990) setPlaying(false);
     }
@@ -853,11 +925,92 @@
     requestAnimationFrame(loop);
   }
 
+  /* ---------------- แหล่งข้อมูล ---------------- */
+  function applySettings(cfg) {
+    KPI = Object.assign({}, D.KPI_DEFAULT, cfg.kpi || {});
+    const w = (cfg.thresholds && cfg.thresholds.warn_ratio) || 0.8;
+    M.setWarn(w);
+    $('lgOk').textContent = 'ไม่เกิน ' + Math.round(w * 100) + '% KPI';
+    $('lgWarn').textContent = Math.round(w * 100) + '–100%';
+    pollMs = Math.max(15, cfg.poll_seconds || 30) * 1000;
+    MAPPED = !!cfg.updated_at;
+    Object.keys(cfg.stations || {}).forEach(id => {
+      const st = ST[id], c = cfg.stations[id];
+      if (!st) return;
+      st.name = c.name || st.name; st.short = c.short || st.short; st.phase = c.phase || st.phase;
+      st.dep = (c.depcodes || []).join(', ') || '—';
+      if (c.servers && c.servers !== st.c) { st.c = c.servers; D.layoutServers(st); }
+    });
+  }
+  async function pollLive() {
+    try {
+      const d = LV.adapt(await LV.getJSON('api/live.php'));
+      if (d.staleCache && LIVE) {                  // HIS ล่ม: เซิร์ฟเวอร์ส่งแคชเดิม → คงข้อมูลและนาฬิกาเดิม แค่แจ้งเตือน
+        liveErr = d.warnings[d.warnings.length - 1] || 'เชื่อมต่อ HIS ไม่ได้';
+        throw null;
+      }
+      const nowP = performance.now();
+      if (LIVE) {                                  // จุดที่เปลี่ยนตั้งแต่รอบก่อน → เดินให้เห็น 7 วินาที
+        const prev = new Map();
+        PATS.forEach(p => { const s = LV.stateAt(p, T); if (s && (s.kind === 'wait' || s.kind === 'serve')) prev.set(p.ref, s.st); });
+        const t2 = d.now;
+        d.visits.forEach(p => {
+          const s = LV.stateAt(p, t2), a = prev.get(p.ref);
+          if (a && s && s.st && s.st !== a && (s.kind === 'wait' || s.kind === 'serve')) anims.set(p.ref, { from: a, to: s.st, t0: nowP, t1: nowP + 7000 });
+        });
+      }
+      LIVE = d; liveAt = Date.now(); liveErr = null;
+      PATS = d.visits; BY = M.indexSteps(PATS); T = d.now;
+      if (sel.type === 'pat') { const i = PATS.findIndex(p => p.ref === sel.ref); if (i < 0) closePanel(); else sel.id = i; }
+      renderAssume();
+    } catch (e) {
+      if (e) liveErr = e.status === 503 ? e.message : 'เชื่อมต่อ HIS ไม่ได้ (' + e.message + ')';
+    }
+    tick(true);
+    clearTimeout(pollTimer);
+    pollTimer = setTimeout(pollLive, pollMs);
+  }
+  function renderMode() {
+    const f = $('simFlag');
+    if (MODE === 'sim') {
+      f.className = 'sim-flag';
+      f.innerHTML = '<b>ข้อมูลสมมติ</b><span>จำลองเพื่อทดสอบหน้าจอ ไม่ใช่ข้อมูลผู้ป่วยจริง</span>';
+      return;
+    }
+    const ago = LIVE ? Math.round((Date.now() - liveAt) / 1000) : null;
+    const bad = liveErr || !LIVE || (LIVE && LIVE.staleCache);
+    f.className = 'sim-flag ' + (bad ? 'err' : 'live');
+    const warn = LIVE && LIVE.warnings.length ? ' · ' + LIVE.warnings[0] : '';
+    f.innerHTML = liveErr
+      ? '<b>เชื่อมต่อ HIS ไม่ได้</b><span>' + esc(liveErr) + (LIVE ? ' · แสดงข้อมูลที่ได้ล่าสุดเมื่อ ' + new Date(liveAt).toLocaleTimeString('th-TH', { hour12: false }) : '') + ' · ลองใหม่ทุก ' + pollMs / 1000 + ' วิ</span>'
+      : '<b>ข้อมูลจริงจาก HIS</b><span>' + (LIVE ? 'อัปเดต ' + new Date(liveAt).toLocaleTimeString('th-TH', { hour12: false }) + ' · ' + ago + ' วิที่แล้ว · ดึงใหม่ทุก ' + pollMs / 1000 + ' วิ' : 'กำลังโหลด…') + esc(warn) + '</span>';
+  }
+  async function boot() {
+    const demo = /[?&]demo=1\b/.test(location.search);
+    let cfg = null;
+    if (!demo && location.protocol !== 'file:') {
+      try { cfg = await LV.getJSON('api/settings.php'); } catch (e) { cfg = null; }
+    }
+    if (cfg && cfg.kpi) {
+      SERVER = true; MODE = 'live';
+      applySettings(cfg);
+      document.body.classList.add('is-live');
+      $('clockLabel').textContent = 'เวลาปัจจุบัน';
+      $('kpiBtn').textContent = 'ตั้งค่า';
+      $('footNote').textContent = 'ข้อมูลจาก HIS แบบอ่านอย่างเดียว · HN แสดงเฉพาะ 4 ตัวท้าย ไม่แสดงชื่อผู้ป่วย';
+      await pollLive();
+    } else {
+      PATS = SIM.runSim(2026);
+      PATS.forEach(p => { p.q = String(p.id + 1); p.ref = 'S' + p.id; });
+      BY = M.indexSteps(PATS);
+    }
+    renderAssume();
+  }
+
   /* ---------------- เริ่ม ---------------- */
   readTokens();
-  renderAssume();
   resize();
-  const start = () => { applyTheme(); setView('campus'); requestAnimationFrame(loop); };
+  const start = () => boot().then(() => { applyTheme(); setView('campus'); requestAnimationFrame(loop); });
   if (document.fonts && document.fonts.load) Promise.race([document.fonts.load('600 16px "IBM Plex Sans Thai"'), new Promise(r => setTimeout(r, 1500))]).then(start, start);
   else start();
 })();

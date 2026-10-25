@@ -8,13 +8,21 @@ final class Json
         http_response_code($status);
         header('Content-Type: application/json; charset=utf-8');
         header('Cache-Control: no-store');
-        echo json_encode($data, JSON_UNESCAPED_UNICODE);
+        header('X-Content-Type-Options: nosniff');
+        echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION);
         exit;
     }
 
-    public static function fail(Throwable $e): never
+    public static function body(): array
     {
-        error_log($e->getMessage());
-        self::send(['error' => 'ไม่สามารถอ่านข้อมูลได้ ตรวจการเชื่อมต่อฐานข้อมูล'], 500);
+        $raw = file_get_contents('php://input') ?: '';
+        $d = json_decode($raw, true);
+        return is_array($d) ? $d : [];
+    }
+
+    public static function fail(Throwable $e, string $msg = 'ไม่สามารถอ่านข้อมูลจาก HIS ได้ ตรวจการเชื่อมต่อฐานข้อมูล'): never
+    {
+        error_log('[opd-map] ' . $e->getMessage());
+        self::send(['error' => $msg], $e instanceof InvalidArgumentException ? 400 : 500);
     }
 }
