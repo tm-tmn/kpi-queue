@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ผังเวลารอ OPD ศรีนครินทร์</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<!--APP-->
+<header class="top">
+  <div class="top-in">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M10 3h4v7h7v4h-7v7h-4v-7H3v-4h7z" fill="currentColor"/></svg></div>
+      <div class="brand-text">
+        <h1>ผังเวลารอผู้ป่วยนอก</h1>
+        <p>โรงพยาบาลศรีนครินทร์ · คณะแพทยศาสตร์ มหาวิทยาลัยขอนแก่น</p>
+      </div>
+    </div>
+    <div class="sim-flag" role="note"><b>ข้อมูลสมมติ</b><span>จำลองเพื่อทดสอบหน้าจอ ไม่ใช่ข้อมูลผู้ป่วยจริง</span></div>
+    <div class="clock">
+      <div class="clock-time"><span class="clock-label">เวลาจำลอง</span><output id="clockOut">10:30</output></div>
+      <div class="clock-ctl">
+        <button id="playBtn" class="icon-btn" aria-label="หยุดชั่วคราว" title="หยุด / เล่นต่อ"><svg viewBox="0 0 24 24" width="18" height="18"><path id="playIcon" d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor"/></svg></button>
+        <div class="seg" role="group" aria-label="ความเร็ว">
+          <button data-speed="1">1×</button><button data-speed="10" class="on">10×</button><button data-speed="60">60×</button>
+        </div>
+      </div>
+      <input id="scrub" type="range" min="360" max="990" step="1" value="630" aria-label="เลื่อนเวลาจำลอง">
+    </div>
+    <div class="top-actions">
+      <button id="kpiBtn" class="ghost-btn">ตั้งค่า KPI</button>
+      <button id="themeBtn" class="icon-btn" aria-label="สลับโหมดสว่าง/มืด" title="โหมดสว่าง / มืด"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z" fill="currentColor"/></svg></button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="kpis" aria-label="ตัวชี้วัดภาพรวม">
+    <div class="kpi"><span class="kpi-l">ผู้รับบริการวันนี้</span><b id="kToday">–</b><span class="kpi-s" id="kTodayS">คน</span></div>
+    <div class="kpi"><span class="kpi-l">อยู่ใน รพ. ตอนนี้</span><b id="kInside">–</b><span class="kpi-s" id="kInsideS">คน</span></div>
+    <div class="kpi"><span class="kpi-l">เวลารวมเฉลี่ย</span><b id="kAvg">–</b><span class="kpi-s" id="kAvgS">นาที</span></div>
+    <div class="kpi"><span class="kpi-l">ผ่าน KPI เวลารวม</span><b id="kPass">–</b><span class="kpi-s" id="kPassS">ของผู้ที่รับยาแล้ว</span></div>
+    <div class="kpi kpi-worst" id="kWorstBox"><span class="kpi-l">จุดที่รอนานที่สุด</span><b id="kWorst">–</b><span class="kpi-s" id="kWorstS"></span></div>
+  </section>
+
+  <section class="stage" id="stage" aria-label="ผัง 3 มิติ">
+    <div class="stage-bar">
+      <nav class="crumbs" id="crumbs" aria-label="ระดับมุมมอง"></nav>
+      <div class="floors" id="floors" role="group" aria-label="เลือกชั้น"></div>
+      <div class="view-ctl">
+        <button class="icon-btn" id="rotL" aria-label="หมุนซ้าย" title="หมุนซ้าย"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M7 7V3L2 8l5 5V9h7a5 5 0 0 1 0 10H8v2h6a7 7 0 0 0 0-14z" fill="currentColor"/></svg></button>
+        <button class="icon-btn" id="rotR" aria-label="หมุนขวา" title="หมุนขวา"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M17 7V3l5 5-5 5V9h-7a5 5 0 0 0 0 10h6v2h-6a7 7 0 0 1 0-14z" fill="currentColor"/></svg></button>
+        <button class="icon-btn" id="zIn" aria-label="ซูมเข้า">+</button>
+        <button class="icon-btn" id="zOut" aria-label="ซูมออก">−</button>
+        <button class="ghost-btn sm" id="fitBtn">พอดีจอ</button>
+      </div>
+    </div>
+    <div class="viewport" id="viewport">
+      <canvas id="gl"></canvas>
+      <div class="labels" id="labels"></div>
+      <div class="hint" id="hint">ลากเพื่อเลื่อน · หมุนล้อ/บีบนิ้วเพื่อซูม · แตะอาคาร ห้อง หรือคน</div>
+      <div class="legend" aria-label="คำอธิบายสี">
+        <span><i class="sw ok"></i>ไม่เกิน 80% KPI</span>
+        <span><i class="sw warn"></i>80–100%</span>
+        <span><i class="sw bad"></i>เกิน KPI</span>
+        <span><i class="sw walk"></i>กำลังเดิน</span>
+      </div>
+      <div class="guess-note" id="guessNote"></div>
+    </div>
+    <aside class="panel" id="panel" hidden aria-live="polite">
+      <button class="panel-x" id="panelX" aria-label="ปิด">×</button>
+      <div id="panelBody"></div>
+    </aside>
+  </section>
+
+  <section class="tbl-sec" aria-labelledby="tblH">
+    <div class="sec-head">
+      <h2 id="tblH">ทุกจุดบริการ</h2>
+      <p>เวลารอเฉลี่ย = ค่าเฉลี่ยของผู้ที่เริ่มรับบริการใน 60 นาทีล่าสุด · แตะแถวเพื่อไปที่ห้อง</p>
+    </div>
+    <div class="tbl-scroll">
+      <table class="tbl" id="tbl">
+        <thead><tr>
+          <th>จุดบริการ</th><th>อาคาร · ชั้น</th><th>รหัสแผนก</th><th class="num">รอ (คน)</th><th class="num">เฉลี่ย</th><th class="num">รอนานสุด</th><th class="num">KPI</th><th>เทียบ KPI</th><th class="num">รับบริการแล้ว</th>
+        </tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="assume" aria-labelledby="asH">
+    <div class="sec-head">
+      <h2 id="asH">สิ่งที่ยังเป็นการเดา รอยืนยัน</h2>
+      <p>ทุกจุดที่มีป้าย <span class="guess">เดา</span> ต้องแก้ตามข้อมูลจริงก่อนใช้งาน</p>
+    </div>
+    <div class="assume-grid">
+      <div class="assume-list" id="assumeList"></div>
+      <div class="tbl-scroll">
+        <table class="tbl map-tbl"><thead><tr><th>ห้องในผัง</th><th>อาคาร · ชั้น</th><th>depcode</th><th>ช่องบริการ</th></tr></thead><tbody id="mapBody"></tbody></table>
+      </div>
+    </div>
+  </section>
+  <footer class="foot">ต้นแบบ · ข้อมูลสมมติทั้งหมด · HN แสดงเฉพาะ 4 ตัวท้าย ไม่แสดงชื่อผู้ป่วย</footer>
+</main>
+
+<div class="modal" id="kpiModal" hidden>
+  <form class="modal-card" id="kpiForm">
+    <h3>ตั้งค่า KPI เวลารอ (นาที)</h3>
+    <p class="muted">ค่าตอนนี้เป็นค่าตั้งต้นที่เดาไว้ ใส่ค่าจริงของโรงพยาบาลแล้วสีจะเปลี่ยนทันที (บันทึกในเบราว์เซอร์นี้)</p>
+    <div class="kpi-grid" id="kpiGrid"></div>
+    <div class="modal-act">
+      <button type="button" class="ghost-btn" id="kpiReset">คืนค่าเริ่มต้น</button>
+      <button type="submit" class="solid-btn">ใช้ค่านี้</button>
+    </div>
+  </form>
+</div>
+<!--/APP-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="js/data.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/metrics.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
